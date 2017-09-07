@@ -17,7 +17,7 @@ crs_measure = {'init': 'epsg:32648'} #UTM zone 48N
 bufwidth = 0.00025 # width to buffer initial roads
 road_too_small_m = 30 # length of roads to delete (metres, crs_measure)
 accuracy_of_centerlines = bufwidth / 4 # simplification of polygons for calculating centerline. Seems to work well.
-verbose = 1 # Print mid-script actions or not
+verbose = 0 # Print mid-script actions or not
 acceptable_suspension_settings = ['MEDIUM', 'HARD-MEDIUM'] #Filter for Point cloud on suspension
 low_speed = 20 #Filter for Point cloud on speed: lowest speed for IRI to be considered valid
 high_speed = 40 #Filter for Point cloud on speed: highest speed for IRI to be considered valid
@@ -35,9 +35,12 @@ RawLines = r'FOR_JOIN_INTS.csv'
 
 #User Defined Functions
 def Filedump(df, name):
-    try:
-        df.to_csv(runtime+r'%s.csv' % name)
-    except:
+    if verbose == 1:
+        try:
+            df.to_csv(runtime+r'%s.csv' % name)
+        except:
+            pass
+    else:
         pass
 
 def FileOut(df, name):
