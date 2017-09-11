@@ -61,6 +61,7 @@ def opIRI(x):
     y['iri_med'] = [x.iri.median()]
     y['iri_min'] = [x.iri.min()]
     y['iri_max'] = [x.iri.max()]
+	y['iri_stdev'] = [x.iri.std()]
     y['speed_mean'] = [x.speed.mean()]
     y['speed_med'] = [x.speed.median()]
     return y
@@ -247,7 +248,7 @@ JoinVID = JoinVID.groupby(['ID']).apply(lambda x: opVID(x))
 Network = Network.merge(JoinVID, how = 'left', on= 'ID')
 gNetwork = gpd.GeoDataFrame(Network, crs = crs_in, geometry = Network['Line_Geometry'].map(shapely.wkt.loads))
 gNetwork = gNetwork.to_crs(crs_measure)
-gNetwork['length_km_(%s)' % crs_measure['init']] = gNetwork['geometry'].apply(lambda x: (x.length)/1000).map(float)
+gNetwork['length'] = gNetwork['geometry'].apply(lambda x: (x.length)/1000).map(float)
 
 Vprint('    Output the new files')
 gNetwork = gNetwork.drop(['geometry'], axis = 1)
