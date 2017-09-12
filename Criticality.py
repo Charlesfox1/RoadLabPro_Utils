@@ -37,7 +37,7 @@ verbose = 0
 dump = 1
 # Path Settings
 outpath = r'C:\Users\charl\Documents\Vietnam\PCS\\'
-runtime = outpath+r'Criticality\Stack\runtime_fuckin_about\\'
+runtime = outpath+r'Criticality\Stack\runtime\\'
 inpath = r'C:\Users\charl\Documents\Vietnam\PCS\Criticality\Stack\input\Vietnam'
 crs_in = {'init': 'epsg:4326'}   #WGS 84
 
