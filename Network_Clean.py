@@ -186,14 +186,11 @@ def RoadCleanup(inputroads, inputjunctions, n):
     Vprint('    Resplit roads on new junctions')
     Phase2_final_df = pd.DataFrame(columns = ['WKT'])
     points = MultiPoint(OutJunctions['Junction'])
-    Filedump(good_roads,'goodRoads_%s' % n)
-    print points
-    Filedump(pd.DataFrame({junctions:[points]}),'juncies_%s' % n)
     good_roads['shapely'] = good_roads['lines'].map(shapely.wkt.loads)
     line = MultiLineString(good_roads['shapely'].tolist())
-    #Filedump(pd.DataFrame({'line':[line]}),'before_merge_%s' % n)
     line = shapely.ops.linemerge(line)
-    #Filedump(pd.DataFrame({'line':[line]}),'after_merge_%s' % n)
+    Filedump(pd.DataFrame({'junctions':[points]}),'POINTS_%s' % n)
+    Filedump(pd.DataFrame({'line':[line]}),'LINE_%s' % n)
     splitted = shapely.ops.split(line, points)
     roads = []
     for x in splitted:
