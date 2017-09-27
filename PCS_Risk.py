@@ -114,6 +114,7 @@ for RASTER in Riskdf.index:
     a[np.isnan(a)] = 0
     b.append(a)
 df['RISK_SCORE'] = sum(b)
+df['RISK_SCORE'] = ((df['RISK_SCORE'] - df['RISK_SCORE'].min()) / (df['RISK_SCORE'].max() - df['RISK_SCORE'].min()))
 if checkcols == 1:
     pass
 elif checkcols == 0:

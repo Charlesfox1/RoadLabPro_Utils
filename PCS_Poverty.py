@@ -22,7 +22,7 @@ gdf_adm = gdf_adm.to_crs(crs)
 weightsdf = pd.read_excel(dash, sheetname = "POV")
 w8s = weightsdf.to_dict(orient='records')
 for x in range(0,10):
-    print "Doing calcs for: %s" % w8s[x]['B']
+    print "\nProcessing: %s" % w8s[x]['B']
     plc = ((gdf_adm[w8s[x]['B']]-gdf_adm[w8s[x]['B']].min())/(gdf_adm[w8s[x]['B']].max()-gdf_adm[w8s[x]['B']].min()))
     if w8s[x]['D'] == False:
         gdf_adm['Povcomp_%d'% (x+1)] = (1 - plc)*float(w8s[x]['C'])
@@ -60,4 +60,5 @@ join_pov = join_pov.groupby(['ID']).apply(lambda x: LINEGROUPER(x))
 gdf_road = gdf_road.merge(join_pov, how = "inner", on = "ID")
 gdf_road = gdf_road.drop('geometry',axis = 1)
 gdf_road = pd.DataFrame(gdf_road)
+gdf_road['POV_SCORE'] = ((gdf_road['POV_SCORE'] - gdf_road['POV_SCORE'].min()) / (gdf_road['POV_SCORE'].max() - gdf_road['POV_SCORE'].min()))
 gdf_road.to_csv(os.path.join(path,'Outputs','%s' % district,'poverty_output.csv'), index = False)

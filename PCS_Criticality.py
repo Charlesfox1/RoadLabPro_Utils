@@ -90,32 +90,39 @@ ginAdmin.to_file(os.path.join(runtime, 'adm_centroids.shp'), driver = 'ESRI Shap
 Outputs = []   # List of final outputs, each object is a dictionary corresponding to an origin:destination pair
 #Inputs
 network = os.path.join(runtime,'Network.shp')
-origin_1 = {
-    'name': ctrldf['OName'][0],
-    'file': ctrldf['OPath'][0],
-    'scalar_column': ctrldf['OScalar'][0]
-    }
-destination_1 = {
-    'name': ctrldf['DName'][0],
-    'file': ctrldf['DPath'][0],
-    'penalty': ctrldf['DPenalty'][0],
-    'importance':ctrldf['DImportance'][0],
-    'annual':ctrldf['DAnnual'][0],
-    'scalar_column': ctrldf['DScalar'][0]
-    }
-destination_2 = {
-    'name': ctrldf['DName'][1],
-    'file': ctrldf['DPath'][1],
-    'penalty': ctrldf['DPenalty'][1],
-    'importance':ctrldf['DImportance'][1],
-    'annual':ctrldf['DAnnual'][1],
-    'scalar_column': ctrldf['DScalar'][1]
-    }
-origin_list = [origin_1]
-destination_list = [destination_1,destination_2]
+def makeOrigin(n):
+    origindict = {
+        'name': ctrldf['OName'][n],
+        'file': ctrldf['OPath'][n],
+        'scalar_column': ctrldf['OScalar'][n]
+        }
+    return origindict
 
+def makeDestination(n):
+    destdict = {
+        'name': ctrldf['DName'][n],
+        'file': ctrldf['DPath'][n],
+        'penalty': ctrldf['DPenalty'][n],
+        'importance':ctrldf['DImportance'][n],
+        'annual':ctrldf['DAnnual'][n],
+        'scalar_column': ctrldf['DScalar'][n]
+        }
+    return destdict
+
+origin_1, origin_2, origin_3 = makeOrigin(0), makeOrigin(1), makeOrigin(2)
+originlist = {
+    '%s' % ctrldf['OName'][0]: origin_1,
+    '%s' % ctrldf['OName'][1]: origin_2,
+    '%s' % ctrldf['OName'][2]: origin_3
+    }
+destination_1, destination_2, destination_3 = makeDestination(0), makeDestination(1), makeDestination(2)
+destinationlist = {
+    '%s' % ctrldf['DName'][0]: destination_1,
+    '%s' % ctrldf['DName'][1]: destination_2,
+    '%s' % ctrldf['DName'][2]: destination_3
+    }
 # Prepation of network
-gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_list[0]['file'], network)
+gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)
 # Create Networkx MultiGraph object from the GeoDataFrame
 G = net_p.gdf_to_simplified_multidigraph(gdf_node_pos, gdf, simplify=False)
 # Change the MultiGraph object to Graph object to reduce computation cost
@@ -136,7 +143,7 @@ nx.info(G_sub)
 
 # Save the simplified transport network into a GeoDataFrame
 gdf_sub = net_p.graph_to_df(G_sub)
-blank, gdf_node_pos2, gdf_new = net_p.prepare_newOD(origin_list[0]['file'], gdf_sub)
+blank, gdf_node_pos2, gdf_new = net_p.prepare_newOD(origin_1['file'], gdf_sub)
 
 #Road Network Graph prep
 G2_multi = net_p.gdf_to_simplified_multidigraph(gdf_node_pos2, gdf_new, simplify=False)
@@ -251,11 +258,11 @@ def summarise(diff, iso, demand, origin, destination,Q):
         ctrldf['Disrupt_Weight'][0] * out['Social_Cost_score_%s' % Q] +
         ctrldf['Isolate_Weight'][0] * out['Isolated_score_%s' % Q]
         )
-    out = out[['ID','Social_Cost_%s' % Q,'Isolated_Trips_%s' % Q,'crit_score_%s' % Q]]
+    out = out[['ID','Social_Cost_%s' % Q,'Isolated_Trips_%s' % Q,'CRIT_SCORE_%s' % Q]]
     return out
 
 def Main(origin, destination, Q):
-    Vprint('\ncomputing for origin = %s and destination = %s\n' % (origin['name'], destination['name']))
+    Vprint('\ncomputing for origin = %s and destination = %s\n, combination %s' % (origin['name'], destination['name'],Q))
     origin['P'], destination['P'] = PrepSet(origin), PrepSet(destination)
     basePath, baseCost, baseLength = Pathfinder(origin['P'], destination['P'])
     diff, iso = BreakEdge(origin['P'], destination['P'], destination['penalty'], baseCost, destination['name'])
@@ -272,8 +279,9 @@ def Main(origin, destination, Q):
         'summary': summary})
 
 cost_list, iso_list = [], []
-Main(origin_1, destination_1, 1)
-Main(origin_1, destination_2, 2)
+for z in ctrldf.index:
+    if (((ctrldf['ComboO'][z]) != 0) & ((ctrldf['ComboD'][z]) != 0)):
+        Main(originlist['%s' % ctrldf['ComboO'][z]], destinationlist['%s' % ctrldf['ComboD'][z]], ctrldf['ComboNumber'][z])
 
 Output = inNetwork.drop(['geometry','TC_iri_med','total_cost'],axis =1)
 for o_d_calc in range(0,len(Outputs)):
@@ -284,4 +292,5 @@ Output['CRIT_SCORE'] = (
 ctrldf['Disrupt_Weight'][0] * Output['Cost_total'] +
 ctrldf['Isolate_Weight'][0] * Output['Iso_total']
 )
+Output['CRIT_SCORE'] = ((Output['CRIT_SCORE'] - Output['CRIT_SCORE'].min()) / (Output['CRIT_SCORE'].max() - Output['CRIT_SCORE'].min()))
 FileOut(Output,'criticality_output')
