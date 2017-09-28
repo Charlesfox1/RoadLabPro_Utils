@@ -4,11 +4,11 @@
 # Charles Fox (and a little by Ben), September 2017
 # Purpose: determine the poverty index for each linear feature in the network dataset
 ###################################################################################################
+import os, sys, inspect, logging
 
 import pandas as pd
 import geopandas as gpd
 import shapely.wkt
-import os, sys, inspect
 
 roadID = ''
 
@@ -16,14 +16,23 @@ def main(district="YD", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     #district = str(raw_input('\nDistrict Code: (YD | TT) '))
     #admin = r'Poverty_Communes_2009.shp'
     roadID = curRoadID
-    
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    
+    #Set up logging
+    logging.basicConfig(filename = os.path.join(path, "PCS_Poverty.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    logging.info("Starting PCS Poverty Process")
+    
     povpath = os.path.join(path,'PCS','Poverty')
     povAdmin = os.path.join(povpath, admin)
     roadpath = os.path.join(path,'Runtime', '%s' % district, 'Network.csv')
-    dash = os.path.join(path, 'PCS',r'dashboard.xlsx')
+    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
     crs = {'init': 'epsg:4326'}
     
+    for curFile in [povpath, povAdmin, roadpath, dash]:
+        if not os.path.exists(curFile):
+            logging.error("No input found: %s" % curFile)
+            raise ValueError("No input found: %s" % curFile)
+            
     #read CMS output (roads) in as GDF
     df = pd.read_csv(roadpath)
     geometry = df['Line_Geometry'].map(shapely.wkt.loads)
@@ -36,7 +45,7 @@ def main(district="YD", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     w8s = weightsdf.to_dict(orient='records')
     
     for x in range(0,len(w8s)):
-        print "Doing calcs for: %s" % w8s[x]['B']
+        logging.debug("Doing calcs for: %s" % w8s[x]['B'])
         plc = ((gdf_adm[w8s[x]['B']]-gdf_adm[w8s[x]['B']].min())/(gdf_adm[w8s[x]['B']].max()-gdf_adm[w8s[x]['B']].min()))
         if w8s[x]['D'] == False:
             gdf_adm['Povcomp_%d'% (x+1)] = (1 - plc)*float(w8s[x]['C'])
@@ -62,8 +71,7 @@ def main(district="YD", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     gdf_adm = gdf_adm.drop('geometry', axis=1)
     gdf_adm.to_excel(os.path.join(povpath, 'Pov_all_communes.xlsx'))
     
-    #create mini DF with just the average poverty score and VPROMMS_ID    
-    
+    #create mini DF with just the average poverty score and VPROMMS_ID        
     gdf_road_join = gdf_road[['geometry',roadID]]    
     join_pov = gpd.sjoin(gdf_road_join, gdf_adm_join, how = "inner", op = 'intersects')    
     join_pov = join_pov.groupby([roadID]).apply(lambda x: LINEGROUPER(x))    
@@ -72,7 +80,8 @@ def main(district="YD", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     gdf_road = pd.DataFrame(gdf_road)
     gdf_road['POV_SCORE'] = ((gdf_road['POV_SCORE'] - gdf_road['POV_SCORE'].min()) / (gdf_road['POV_SCORE'].max() - gdf_road['POV_SCORE'].min()))
     gdf_road.to_csv(os.path.join(path,'Outputs','%s' % district,'poverty_output.csv'), index = False)
-
+    logging.info("Finished PCS Poverty Calculations")
+    
 #Spatial Join
 def LINEGROUPER(x2):    #EDIT
     y = pd.DataFrame()

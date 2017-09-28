@@ -27,7 +27,7 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
     hazardPath = os.path.join(path, "PCS/Hazard/HazardData") #Stores the hazard raster data
     
     #Set up logging
-    logging.basicConfig(filename = os.path.join(path, "PCS_Risk.txt"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    logging.basicConfig(filename = os.path.join(path, "PCS_Risk.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
     logging.info("Starting Risk Process")
     outpath = os.path.join(path, 'Outputs','%s' % district)
     runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')

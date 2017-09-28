@@ -1,6 +1,13 @@
+
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
+
+# Repository Specific
+HazardData
+Runtime
+*.log
 
 # Folder config file
 Desktop.ini
@@ -40,8 +47,6 @@ $RECYCLE.BIN/
 .VolumeIcon.icns
 
 # Directories potentially created on remote AFP share
-HazardData
-Runtime
 .AppleDB
 .AppleDesktop
 Network Trash Folder
