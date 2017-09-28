@@ -1,30 +1,87 @@
 # -*- coding: utf-8 -*-
+###################################################################################################
+# Calculate Risk for roads
+# Charles Fox and Benjmain Stewart, September 2017
+# Purpose: Intersect the risk rasters with a network dataset
+###################################################################################################
+import os, sys, inspect
+
 import fiona
 import rasterio
-import rasterio.mask
 import rasterstats as rs
 import pandas as pd
 import geopandas as gpd
 import shapely.wkt
 import numpy as np
-import os
-district = str(raw_input('\nDistrict Code: (YD | TT) '))
-path = r'C:\Users\charl\Documents\GitHub\RoadLabPro_Utils\\'
-LOCALpath = r'C:\Users\charl\Documents\Vietnam\PCS\\'
-outpath = os.path.join(path, 'Outputs','%s' % district)
-runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')
-dash = os.path.join(path,'PCS','dashboard.xlsx')
-Network = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
+
 verbose = 1
 checkcols = 0
 
-#read CMS output in as GDF
-df = pd.read_csv(Network)
-geometry = df['Line_Geometry'].map(shapely.wkt.loads)
-crs = {'init': 'epsg:4326'}
-gdf = gpd.GeoDataFrame(df, crs = crs, geometry = geometry)
-#import risk layers
-Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)
+def main(district="YD", curVerbose=0, curCheckCols=0):
+    #district = str(raw_input('\nDistrict Code: (YD | TT) '))
+    verbose = curVerbose
+    checkcols = curCheckCols
+    
+    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    hazardPath = os.path.join(path, "PCS/Hazard/HazardData") #Stores the hazard raster data
+
+    outpath = os.path.join(path, 'Outputs','%s' % district)
+    runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')
+    for d in [outpath, runtime]:
+        if not os.path.isdir(d):
+            os.mkdir(d)
+
+    dash = os.path.join(path, 'PCS','dashboard.xlsx')
+    Network = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
+
+    #read CMS output in as GDF
+    df = pd.read_csv(Network)
+    geometry = df['Line_Geometry'].map(shapely.wkt.loads)
+    crs = {'init': 'epsg:4326'}
+    gdf = gpd.GeoDataFrame(df, crs = crs, geometry = geometry)
+
+    #import risk layers
+    Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)
+    
+    for RASTER in Riskdf.index:
+        print '\nComputing exposure for risk layer: %s' % RASTER
+        a = '%s_mean' % RASTER
+        try:
+            curRasterPath = os.path.join(hazardPath,str(Riskdf['PATH'][RASTER]))
+            if Riskdf['REL_ABS'][RASTER] == "Relative":
+                zstat = Relative(gdf, a, RASTER,curRasterPath, Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
+            elif Riskdf['REL_ABS'][RASTER] == "Absolute":
+                zstat = Absolute(gdf, a, RASTER,curRasterPath, Riskdf['ABS_VAL'][RASTER], Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
+            else:
+                print "\n** ERROR: relative / absolute decision not made for risk layer %s **" % RASTER
+            df = df.merge(zstat, left_index=True, right_index=True)
+        except Exception as e:
+            print "\n** ERROR: Risk Layer %s Did not compute correctly **" % RASTER
+            print e.message
+    
+    #Calulcate Risk Score
+    b = []
+    for RASTER in Riskdf.index:
+        a = df['%s_mean' % RASTER] * Riskdf['WEIGHT'][RASTER]
+        a[np.isnan(a)] = 0
+        b.append(a)
+    df['RISK_SCORE'] = sum(b)
+    df['RISK_SCORE'] = ((df['RISK_SCORE'] - df['RISK_SCORE'].min()) / (df['RISK_SCORE'].max() - df['RISK_SCORE'].min()))
+
+    if checkcols == 1:
+        pass
+    elif checkcols == 0:
+        for RASTER in Riskdf.index:
+            df = df.drop('%s_mean' % RASTER, axis = 1)
+    else:
+        raise ERROR          
+
+    #Output
+    df = df.drop('geometry',axis = 1)
+    df = pd.DataFrame(df)
+    df.to_csv(os.path.join(outpath,'risk_output.csv'), index=False)  
+    
+        
 #Define Functions
 def make_cmean(minval, maxval):
     def _func(x, minval = minval, maxval = maxval):
@@ -62,7 +119,7 @@ def Value_Mask(rastpath, minval, maxval):
         maxi = max(maxlist)
     return mini, maxi
 
-def Relative(raster_name, rastpath, minval, maxval):
+def Relative(gdf, a, raster_name, rastpath, minval, maxval):
     mini, maxi = Value_Mask(rastpath, minval, maxval)
     Vprint("Raster %s will be measured relative to a masked max of %f and a masked min of %f" % (raster_name, maxi, mini))
     cmean = make_cmean(minval, maxval)
@@ -78,7 +135,7 @@ def Relative(raster_name, rastpath, minval, maxval):
     stat = stat.drop(['rawmean','normed'], axis = 1)
     return stat
 
-def Absolute(raster_name, rastpath,thresh, minval, maxval):
+def Absolute(gdf, a, raster_name, rastpath,thresh, minval, maxval):
     Vprint("Raster %s will be measured against an absolute threshold of %f" % (raster_name, thresh))
     cmean = make_cmean(minval, maxval)
     zs = rs.zonal_stats(gdf,rastpath,all_touched=True,stats="mean",add_stats={"cmean":cmean})
@@ -93,36 +150,4 @@ def Absolute(raster_name, rastpath,thresh, minval, maxval):
     stat = stat.drop(['rawmean','normed'], axis = 1)
     return stat
 
-for RASTER in Riskdf.index:
-    print '\nComputing exposure for risk layer: %s' % RASTER
-    a = '%s_mean' % RASTER
-    try:
-        if Riskdf['REL_ABS'][RASTER] == "Relative":
-            zstat = Relative(RASTER,os.path.join(LOCALpath,str(Riskdf['PATH'][RASTER])), Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
-        elif Riskdf['REL_ABS'][RASTER] == "Absolute":
-            zstat = Absolute(RASTER,os.path.join(LOCALpath,str(Riskdf['PATH'][RASTER])), Riskdf['ABS_VAL'][RASTER], Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
-        else:
-            print "\n** ERROR: relative / absolute decision not made for risk layer %s **" % RASTER
-        df = df.merge(zstat, left_index=True, right_index=True)
-    except:
-        print "\n** ERROR: Risk Layer %s Did not compute correctly **" % RASTER
-
-#Calulcate Risk Score
-b = []
-for RASTER in Riskdf.index:
-    a = df['%s_mean' % RASTER] * Riskdf['WEIGHT'][RASTER]
-    a[np.isnan(a)] = 0
-    b.append(a)
-df['RISK_SCORE'] = sum(b)
-df['RISK_SCORE'] = ((df['RISK_SCORE'] - df['RISK_SCORE'].min()) / (df['RISK_SCORE'].max() - df['RISK_SCORE'].min()))
-if checkcols == 1:
-    pass
-elif checkcols == 0:
-    for RASTER in Riskdf.index:
-        df = df.drop('%s_mean' % RASTER, axis = 1)
-else:
-    raise ERROR
-#Output
-df = df.drop('geometry',axis = 1)
-df = pd.DataFrame(df)
-df.to_csv(os.path.join(outpath,'risk_output.csv'), index=False)
+main()
