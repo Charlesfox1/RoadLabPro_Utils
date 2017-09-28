@@ -30,18 +30,11 @@ criticality = criticality[['ID','CRIT_SCORE']]
 #Component4: Access Index
 #access index - 'keith megatool' KG
 component4 = 1
-df['ACCESS_SCORE'] = 1
+df['ACCESS_SCORE'] = 0
 
 #Component5: Roughness
-iridf = pd.read_excel(dash, sheetname = 'ROUGHNESS', index_col = 0)
-roughness = pd.DataFrame({'ID':df['ID']})
-roughness['a'] = (
-        iridf['WEIGHT']['iri_med']*df['iri_med'] +
-        iridf['WEIGHT']['iri_min']*df['iri_min'] +
-        iridf['WEIGHT']['iri_max']*df['iri_max'] +
-        iridf['WEIGHT']['iri_mean']*df['iri_mean'])
-roughness['ROUGHNESS_SCORE'] = ((roughness['a'] - roughness['a'].min()) / (roughness['a'].max() - roughness['a'].min()))
-roughness = roughness.drop(['a'],axis = 1)
+roughness = pd.read_csv(os.path.join(Outpath,'roughness_output.csv'))
+roughness = roughness[['ID','ROUGHNESS_SCORE']]
 
 #Calculate PCS
 for component in [poverty, risk, criticality, roughness]:
