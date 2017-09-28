@@ -4,7 +4,7 @@
 # Charles Fox and Benjmain Stewart, September 2017
 # Purpose: Intersect the risk rasters with a network dataset
 ###################################################################################################
-import os, sys, inspect
+import os, sys, inspect, logging
 
 import fiona
 import rasterio
@@ -22,29 +22,43 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
     verbose = curVerbose
     checkcols = curCheckCols
     
+    #Set all input paths
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
     hazardPath = os.path.join(path, "PCS/Hazard/HazardData") #Stores the hazard raster data
-
+    
+    #Set up logging
+    logging.basicConfig(filename = os.path.join(path, "PCS_Risk.txt"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    logging.info("Starting Risk Process")
     outpath = os.path.join(path, 'Outputs','%s' % district)
     runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')
     for d in [outpath, runtime]:
         if not os.path.isdir(d):
             os.mkdir(d)
 
-    dash = os.path.join(path, 'PCS','dashboard.xlsx')
+    dash = os.path.join(path, 'PCS','dashboard.xlsm')
     Network = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
-
-    #read CMS output in as GDF
+   
+    #Check input data - Network, Rasters
+    for curFile in [dash, Network, hazardPath]:
+        if not os.path.exists(curFile):
+            logging.error("No input found: %s" % curFile)
+            raise ValueError("No input found: %s" % curFile)
+            
+    Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)        
+    for RASTER in Riskdf.index:
+        curRasterPath = os.path.join(hazardPath,str(Riskdf['PATH'][RASTER]))
+        if not os.path.exists(curRasterPath):
+            logging.error("No input found: %s" % curFile)
+            raise ValueError("No raster found: %s" % curFile)
+    
+    #Read in road network from CMS processing as a geo data frame
     df = pd.read_csv(Network)
     geometry = df['Line_Geometry'].map(shapely.wkt.loads)
     crs = {'init': 'epsg:4326'}
     gdf = gpd.GeoDataFrame(df, crs = crs, geometry = geometry)
 
-    #import risk layers
-    Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)
-    
     for RASTER in Riskdf.index:
-        print '\nComputing exposure for risk layer: %s' % RASTER
+        logging.debug('Computing exposure for risk layer: %s' % RASTER)
         a = '%s_mean' % RASTER
         try:
             curRasterPath = os.path.join(hazardPath,str(Riskdf['PATH'][RASTER]))
@@ -53,11 +67,11 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
             elif Riskdf['REL_ABS'][RASTER] == "Absolute":
                 zstat = Absolute(gdf, a, RASTER,curRasterPath, Riskdf['ABS_VAL'][RASTER], Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
             else:
-                print "\n** ERROR: relative / absolute decision not made for risk layer %s **" % RASTER
+                logging.warning("Relative/absolute decision not made for risk layer %s **" % RASTER)
             df = df.merge(zstat, left_index=True, right_index=True)
         except Exception as e:
-            print "\n** ERROR: Risk Layer %s Did not compute correctly **" % RASTER
-            print e.message
+            logging.warning("** ERROR: Risk Layer %s Did not compute correctly **" % RASTER)
+            logging.info(e.message)
     
     #Calulcate Risk Score
     b = []
@@ -72,14 +86,13 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
         pass
     elif checkcols == 0:
         for RASTER in Riskdf.index:
-            df = df.drop('%s_mean' % RASTER, axis = 1)
-    else:
-        raise ERROR          
+            df = df.drop('%s_mean' % RASTER, axis = 1)         
 
     #Output
     df = df.drop('geometry',axis = 1)
     df = pd.DataFrame(df)
     df.to_csv(os.path.join(outpath,'risk_output.csv'), index=False)  
+    logging.info("Finished Risk Process")
     
         
 #Define Functions
@@ -97,7 +110,7 @@ def Vprint(a):
         pass
 
 def Value_Mask(rastpath, minval, maxval):
-    Vprint("Loading: %s, \nfloor value: %f, headlimit value : %f" % (rastpath, minval, maxval))
+    logging.debug("Loading: %s, \nfloor value: %f, headlimit value : %f" % (rastpath, minval, maxval))
     targ_ras = rasterio.open(rastpath).read(1)
     x,y = targ_ras.shape[0],targ_ras.shape[1]
     if x < 1000 and y < 1000:
@@ -121,7 +134,7 @@ def Value_Mask(rastpath, minval, maxval):
 
 def Relative(gdf, a, raster_name, rastpath, minval, maxval):
     mini, maxi = Value_Mask(rastpath, minval, maxval)
-    Vprint("Raster %s will be measured relative to a masked max of %f and a masked min of %f" % (raster_name, maxi, mini))
+    logging.debug("Raster %s will be measured relative to a masked max of %f and a masked min of %f" % (raster_name, maxi, mini))
     cmean = make_cmean(minval, maxval)
     zs = rs.zonal_stats(gdf,rastpath,all_touched=True,stats="mean",add_stats={"cmean":cmean})
     stat = pd.DataFrame(zs)
@@ -136,7 +149,7 @@ def Relative(gdf, a, raster_name, rastpath, minval, maxval):
     return stat
 
 def Absolute(gdf, a, raster_name, rastpath,thresh, minval, maxval):
-    Vprint("Raster %s will be measured against an absolute threshold of %f" % (raster_name, thresh))
+    logging.debug("Raster %s will be measured against an absolute threshold of %f" % (raster_name, thresh))
     cmean = make_cmean(minval, maxval)
     zs = rs.zonal_stats(gdf,rastpath,all_touched=True,stats="mean",add_stats={"cmean":cmean})
     stat = pd.DataFrame(zs)
