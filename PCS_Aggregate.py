@@ -39,11 +39,11 @@ roughness = roughness[['ID','ROUGHNESS_SCORE']]
 #Calculate PCS
 for component in [poverty, risk, criticality, roughness]:
     df = df.merge(component, how = 'left', on = 'ID')
-
+    
+df['Access_weight'] = weightsdf['Weight']['PCS_ACCESS']
 df['Pov_weight'] = weightsdf['Weight']['PCS_POV']
 df['Risk_weight'] = weightsdf['Weight']['PCS_RISK']
 df['Crit_weight'] = weightsdf['Weight']['PCS_CRIT']
-df['Access_weight'] = weightsdf['Weight']['PCS_ACCESS']
 df['Rough_weight'] = weightsdf['Weight']['PCS_ROUGH']
 df['a'] = df['POV_SCORE'] * df['Pov_weight']
 df['b'] = df['RISK_SCORE'] * df['Risk_weight']

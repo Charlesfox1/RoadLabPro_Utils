@@ -15,19 +15,17 @@ import shapely.wkt
 import numpy as np
 
 verbose = 1
-checkcols = 0
+checkcols = 1
 
-def main(district="YD", curVerbose=0, curCheckCols=0):
+def main(district="YD"):
     #district = str(raw_input('\nDistrict Code: (YD | TT) '))
-    verbose = curVerbose
-    checkcols = curCheckCols
-    
+
     #Set all input paths
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
-    hazardPath = os.path.join(path, "PCS/Hazard/HazardData") #Stores the hazard raster data
-    
+    hazardPath = os.path.join(path, "PCS\\Hazard\\HazardData") #Stores the hazard raster data
+
     #Set up logging
-    logging.basicConfig(filename = os.path.join(path, "PCS_Risk.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    logging.basicConfig(filename = os.path.join(path, "Runtime",district,"PCS_Risk_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
     logging.info("Starting Risk Process")
     outpath = os.path.join(path, 'Outputs','%s' % district)
     runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')
@@ -37,46 +35,55 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
 
     dash = os.path.join(path, 'PCS','dashboard.xlsm')
     Network = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
-   
+
     #Check input data - Network, Rasters
     for curFile in [dash, Network, hazardPath]:
         if not os.path.exists(curFile):
             logging.error("No input found: %s" % curFile)
             raise ValueError("No input found: %s" % curFile)
-            
-    Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)        
+    try:
+        Riskdf = pd.read_excel(dash, sheetname = "HAZARD", index_col = 0)
+    except:
+        raise ValueError("no sheetname 'HAZARD' in dashboard (usually hidden)")
     for RASTER in Riskdf.index:
         curRasterPath = os.path.join(hazardPath,str(Riskdf['PATH'][RASTER]))
         if not os.path.exists(curRasterPath):
-            logging.error("No input found: %s" % curFile)
-            raise ValueError("No raster found: %s" % curFile)
-    
+            logging.error("No input found: %s" % curRasterPath)
+            raise ValueError("No raster found: %s" % curRasterPath)
+
     #Read in road network from CMS processing as a geo data frame
     df = pd.read_csv(Network)
-    geometry = df['Line_Geometry'].map(shapely.wkt.loads)
+    try:
+        geometry = df['Line_Geometry'].map(shapely.wkt.loads)
+    except:
+        raise ValueError("no column 'Line_Geometry' in Network file OR column does not contain WKT strings")
     crs = {'init': 'epsg:4326'}
     gdf = gpd.GeoDataFrame(df, crs = crs, geometry = geometry)
 
     for RASTER in Riskdf.index:
-        logging.debug('Computing exposure for risk layer: %s' % RASTER)
+        logging.info('Computing exposure for risk layer: %s' % RASTER)
         a = '%s_mean' % RASTER
         try:
             curRasterPath = os.path.join(hazardPath,str(Riskdf['PATH'][RASTER]))
+            logging.info('raster path: %s' % curRasterPath)
             if Riskdf['REL_ABS'][RASTER] == "Relative":
-                zstat = Relative(gdf, a, RASTER,curRasterPath, Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
+                zstat = Relative(gdf, a, RASTER,curRasterPath, Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER], runtime)
             elif Riskdf['REL_ABS'][RASTER] == "Absolute":
-                zstat = Absolute(gdf, a, RASTER,curRasterPath, Riskdf['ABS_VAL'][RASTER], Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER])
+                zstat = Absolute(gdf, a, RASTER,curRasterPath, Riskdf['ABS_VAL'][RASTER], Riskdf['MIN'][RASTER], Riskdf['MAX'][RASTER], runtime)
             else:
                 logging.warning("Relative/absolute decision not made for risk layer %s **" % RASTER)
             df = df.merge(zstat, left_index=True, right_index=True)
         except Exception as e:
             logging.warning("** ERROR: Risk Layer %s Did not compute correctly **" % RASTER)
             logging.info(e.message)
-    
+
     #Calulcate Risk Score
     b = []
     for RASTER in Riskdf.index:
         a = df['%s_mean' % RASTER] * Riskdf['WEIGHT'][RASTER]
+        for x in df.index:
+            if np.isnan(a.loc[x]):
+                logging.warning("calculation: 'weight x raster' evaluated to NaN for raster %s, df object with index %s, contribution was set to 0" % (RASTER, x))
         a[np.isnan(a)] = 0
         b.append(a)
     df['RISK_SCORE'] = sum(b)
@@ -86,15 +93,14 @@ def main(district="YD", curVerbose=0, curCheckCols=0):
         pass
     elif checkcols == 0:
         for RASTER in Riskdf.index:
-            df = df.drop('%s_mean' % RASTER, axis = 1)         
+            df = df.drop('%s_mean' % RASTER, axis = 1)
 
     #Output
     df = df.drop('geometry',axis = 1)
     df = pd.DataFrame(df)
-    df.to_csv(os.path.join(outpath,'risk_output.csv'), index=False)  
+    df.to_csv(os.path.join(outpath,'risk_output.csv'), index=False)
     logging.info("Finished Risk Process")
-    
-        
+
 #Define Functions
 def make_cmean(minval, maxval):
     def _func(x, minval = minval, maxval = maxval):
@@ -132,7 +138,7 @@ def Value_Mask(rastpath, minval, maxval):
         maxi = max(maxlist)
     return mini, maxi
 
-def Relative(gdf, a, raster_name, rastpath, minval, maxval):
+def Relative(gdf, a, raster_name, rastpath, minval, maxval, runtime):
     mini, maxi = Value_Mask(rastpath, minval, maxval)
     logging.debug("Raster %s will be measured relative to a masked max of %f and a masked min of %f" % (raster_name, maxi, mini))
     cmean = make_cmean(minval, maxval)
@@ -148,7 +154,7 @@ def Relative(gdf, a, raster_name, rastpath, minval, maxval):
     stat = stat.drop(['rawmean','normed'], axis = 1)
     return stat
 
-def Absolute(gdf, a, raster_name, rastpath,thresh, minval, maxval):
+def Absolute(gdf, a, raster_name, rastpath,thresh, minval, maxval, runtime):
     logging.debug("Raster %s will be measured against an absolute threshold of %f" % (raster_name, thresh))
     cmean = make_cmean(minval, maxval)
     zs = rs.zonal_stats(gdf,rastpath,all_touched=True,stats="mean",add_stats={"cmean":cmean})

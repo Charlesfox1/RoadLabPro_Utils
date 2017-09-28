@@ -5,7 +5,6 @@
 # Purpose: determine the poverty index for each linear feature in the network dataset
 ###################################################################################################
 import os, sys, inspect, logging
-
 import pandas as pd
 import geopandas as gpd
 import shapely.wkt
@@ -13,8 +12,8 @@ import shapely.wkt
 roadID = ''
 
 def main(district="test", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
-    #district = str(raw_input('\nDistrict Code: (YD | TT) '))
-    #admin = r'Poverty_Communes_2009.shp'
+    district = str(raw_input('\nDistrict Code: (YD | TT) '))
+    admin = r'Poverty_Communes_2009.shp'
     roadID = curRoadID
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
 
@@ -80,7 +79,10 @@ def main(district="test", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     gdf_road = gdf_road.drop('geometry',axis = 1)
     gdf_road = pd.DataFrame(gdf_road)
     gdf_road['POV_SCORE'] = ((gdf_road['POV_SCORE'] - gdf_road['POV_SCORE'].min()) / (gdf_road['POV_SCORE'].max() - gdf_road['POV_SCORE'].min()))
-    gdf_road.to_csv(os.path.join(path,'Outputs','%s' % district,'poverty_output.csv'), index = False)
+    outpath = os.path.join(path, 'Outputs','%s' % district)
+    if not os.path.isdir(outpath):
+        os.mkdir(outpath)
+    gdf_road.to_csv(os.path.join(outpath,'poverty_output.csv'), index = False)
     logging.info("Finished PCS Poverty Calculations")
 
 #Spatial Join
