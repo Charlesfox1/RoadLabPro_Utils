@@ -1,28 +1,28 @@
+'''
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
-"""
 Created on Thu Jul  6 15:54:18 2017
 @author: yan
 Re-written by by C Fox for use in Vietnam
-"""
 # criticality analysis
 #
-# get_ipython().magic(u'matplotlib inline')
+'''
+import os, sys, inspect, logging
+
 import networkx as nx
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 import shapely.geometry.base
 import shapely.wkt
 import copy
 import time
 import datetime
 from datetime import datetime
-import os
-import sys
 import warnings
 warnings.filterwarnings("ignore")
 
-module_path = os.path.abspath(r'C:\Users\charl\Documents\GitHub\RoadLabPro_Utils\PCS\Criticality\\')
+module_path = os.path.join(os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0])), "PCS/Criticality")
 if module_path not in sys.path:
     sys.path.append(module_path)
 
@@ -30,30 +30,143 @@ if module_path not in sys.path:
 from network_lib import network_prep as net_p
 from network_lib import od_prep as od_p
 
-import geopandas as gp
-import numpy as np
-
 verbose = 1
 dump = 1
 
-# Path Settings
-district = str(raw_input('\nDistrict Code: (YD | TT) '))
-path = r'C:\Users\charl\Documents\GitHub\RoadLabPro_Utils\\'
-outpath = os.path.join(path, 'Outputs', '%s' % district)
-runtime = os.path.join(path, r'PCS\Criticality\runtime\%s\\' % district)
-NETWORK_IN = os.path.join(path, r'runtime\%s\\' % district)
-OD_IN = os.path.join(path, 'PCS\Criticality\input', '%s' % district)
-crs_in = {'init': 'epsg:4326'}   #WGS 84
-dash = os.path.join(path,'PCS','dashboard.xlsx')
-ctrldf = pd.read_excel(dash, sheetname = "CRITICALITY", index_col = 'COL_ID')
+def main(district="YD", adminIsPoint = False):
+    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    
+    logging.basicConfig(filename = os.path.join(path, "PCS_Criticality.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    logging.info("Starting Criticality Process")
+    
+    # Path Settings
+    outpath = os.path.join(path, 'Outputs', '%s' % district)
+    runtime = os.path.join(path, r'PCS\Criticality\runtime\%s\\' % district)
+    
+    NETWORK_IN = os.path.join(path, r'runtime\%s\\' % district)
+    OD_IN = os.path.join(path, 'PCS\Criticality\input', '%s' % district)
+    dash = os.path.join(path,'PCS','dashboard.xlsm')
+    inNetworkFile = os.path.join(NETWORK_IN, 'Network.csv')
+    inAdmin = os.path.join(OD_IN,'Poverty_Communes_2009.shp')
+
+    crs_in = {'init': 'epsg:4326'}   #WGS 84
+    
+    #Create folders for analysis
+    for d in [outpath, runtime]:
+        if not os.path.isdir(d):
+            os.mkdir(d)
+    #Error checking - Check input data 
+    for curFile in [dash, inNetworkFile, inAdmin]:
+        if not os.path.exists(curFile):
+            logging.error("No input found: %s" % curFile)
+            raise ValueError("No input found: %s" % curFile)
+            
+
+    inNetwork = pd.read_csv(inNetworkFile)
+    ctrldf = pd.read_excel(dash, sheetname = "CRITICALITY", index_col = 'COL_ID')
+    #Inputs
+    network = os.path.join(runtime,'Network.shp')
+
+    #Network Prep
+    fillvalue = inNetwork['iri_med'].mean()
+    inNetwork['TC_iri_med'] = inNetwork['iri_med'].fillna(fillvalue)
+    inNetwork['total_cost'] = inNetwork['length'] * (ctrldf['Base_cost_km'][0] + (ctrldf['IRI_Coeff'][0] * inNetwork['TC_iri_med']))
+    ginNetwork = gpd.GeoDataFrame(inNetwork,crs = crs_in, geometry = inNetwork['Line_Geometry'].map(shapely.wkt.loads))
+    ginNetwork.to_file(network, driver = 'ESRI Shapefile')
+    
+    if not adminIsPoint:
+        prepareAdminCentroids(ginNetwork, inAdmin, crs_in, os.path.join(runtime, 'adm_centroids.shp'))
+    
+    origin_1, origin_2, origin_3 = makeOrigin(0, ctrldf), makeOrigin(1, ctrldf), makeOrigin(2, ctrldf)
+    originlist = {
+        '%s' % ctrldf['OName'][0]: origin_1,
+        '%s' % ctrldf['OName'][1]: origin_2,
+        '%s' % ctrldf['OName'][2]: origin_3
+        }
+    destination_1, destination_2, destination_3 = makeDestination(0, ctrldf), makeDestination(1, ctrldf), makeDestination(2, ctrldf)
+    destinationlist = {
+        '%s' % ctrldf['DName'][0]: destination_1,
+        '%s' % ctrldf['DName'][1]: destination_2,
+        '%s' % ctrldf['DName'][2]: destination_3
+        }
+    # Prepation of network
+    gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)
+    # Create Networkx MultiGraph object from the GeoDataFrame
+    G = net_p.gdf_to_simplified_multidigraph(gdf_node_pos, gdf, simplify=False)
+    # Change the MultiGraph object to Graph object to reduce computation cost
+    G_tograph = net_p.multigraph_to_graph(G)
+    # Observe the properties of the Graph object
+    logging.debug('number of disconnected components is: %d' % nx.number_connected_components(G_tograph))
+    nx.info(G_tograph)
+    # Take only the largest subgraph with all connected links
+    len_old = 0
+    for g in nx.connected_component_subgraphs(G_tograph):
+        if len(list(g.edges())) > len_old:
+            G1 = g
+            len_old = len(list(g.edges()))
+    G_sub = G1.copy()
+
+    logging.debug('number of disconnected components is: %d' % nx.number_connected_components(G_sub))
+    nx.info(G_sub)
+
+    # Save the simplified transport network into a GeoDataFrame
+    gdf_sub = net_p.graph_to_df(G_sub)
+    blank, gdf_node_pos2, gdf_new = net_p.prepare_newOD(origin_1['file'], gdf_sub)
+
+    #Road Network Graph prep
+    G2_multi = net_p.gdf_to_simplified_multidigraph(gdf_node_pos2, gdf_new, simplify=False)
+    Filedump(gdf_new, 'Road_Lines', runtime)
+    Filedump(gdf_node_pos2,'Road_Nodes', runtime)
+    G2 = net_p.multigraph_to_graph(G2_multi)
+    gdf2 = net_p.graph_to_df(G2)
+    nLink = len(G2.edges())
+    
+    Outputs, cost_list, iso_list = [], [], []
+    
+    for z in ctrldf.index:
+        if (((ctrldf['ComboO'][z]) != 0) & ((ctrldf['ComboD'][z]) != 0)):
+            xx = calculateOD(originlist['%s' % ctrldf['ComboO'][z]], destinationlist['%s' % ctrldf['ComboD'][z]], ctrldf['ComboNumber'][z], gdf_sub, G2, nLink, gdf2, runtime, ctrldf)
+            Outputs.append(xx)    
+            cost_list.append("Social_Cost_%s" % (z+1))
+            iso_list.append("Isolated_Trips_%s" % (z+1))
+
+    Output = inNetwork.drop(['geometry',"Line_Geometry",'TC_iri_med','total_cost'],axis =1)    
+    for o_d_calc in range(0,len(Outputs)):
+        Output = Output.merge(Outputs[o_d_calc]['summary'],how = 'left', on = 'ID')    
+        
+    Output['Cost_total'] = Output[cost_list].sum(axis = 1)
+    Output['Iso_total']  = Output[iso_list].sum(axis = 1)
+    Output['CRIT_SCORE'] = (
+        ctrldf['Disrupt_Weight'][0] * Output['Cost_total'] +
+        ctrldf['Isolate_Weight'][0] * Output['Iso_total']
+    )
+    Output['CRIT_SCORE'] = ((Output['CRIT_SCORE'] - Output['CRIT_SCORE'].min()) / (Output['CRIT_SCORE'].max() - Output['CRIT_SCORE'].min()))
+    FileOut(Output,'criticality_output', outpath)
+
+def prepareAdminCentroids(ginNetwork, inAdmin, crs_in, outputFile):
+    #Centroid Prep
+    SingleNetworkObj = pd.DataFrame([str(ginNetwork.unary_union)], columns = ['geom'])
+    gSingleNetworkObj = gpd.GeoDataFrame(SingleNetworkObj,crs = crs_in, geometry = SingleNetworkObj['geom'].map(shapely.wkt.loads))
+    ginAdmin = gpd.read_file(inAdmin)
+    ginAdmin = ginAdmin.to_crs(crs_in)
+    #TODO - This may need to be removed
+    ginAdmin = ginAdmin[['P_EName','D_EName','EN_name','Admin_EN','COMPOPULA','PROCODE04','DISTCODE04','CCode04New','geometry']]
+    ginAdmin = ginAdmin.rename(columns = {'COMPOPULA': 'Pop'})
+    ginAdmin['ID'] = ginAdmin.index
+    SelectedAdmins = gpd.sjoin(gSingleNetworkObj, ginAdmin, how="inner",op='intersects')
+    SelectedAdmins = SelectedAdmins.drop(['geom','geometry'], axis = 1)
+    ginAdmin = ginAdmin.loc[ginAdmin['ID'].isin(SelectedAdmins['ID']) == True]
+    ginAdmin['geometry'] = ginAdmin['geometry'].centroid
+    ginAdmin.to_file(outputFile, driver = 'ESRI Shapefile')
+    
 
 #Utility Functions
-def Filedump(df, name):
+def Filedump(df, name, runtime):
     # Dumps file to runtime folder
     if dump == 1:
         df.to_csv(os.path.join(runtime, r'%s.csv' % name), encoding = 'utf-8')
 
-def FileOut(df, name):
+def FileOut(df, name, outpath):
     # Dumps file to outpath folder
     df.to_csv(os.path.join(outpath, r'%s.csv' % name), index = False, encoding = 'utf-8')
 
@@ -63,34 +176,8 @@ def Vprint(s):
         st = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
         print '\n%s -- %s' % (st, s)
 
-#Network Prep
-inNetwork = pd.read_csv(os.path.join(NETWORK_IN, 'Network.csv'))
-fillvalue = inNetwork['iri_med'].mean()
-inNetwork['TC_iri_med'] = inNetwork['iri_med'].fillna(fillvalue)
-inNetwork['total_cost'] = inNetwork['length'] * (ctrldf['Base_cost_km'][0] + (ctrldf['IRI_Coeff'][0] * inNetwork['TC_iri_med']))
-ginNetwork = gpd.GeoDataFrame(inNetwork,crs = crs_in, geometry = inNetwork['Line_Geometry'].map(shapely.wkt.loads))
-ginNetwork.to_file(os.path.join(runtime, 'Network.shp'), driver = 'ESRI Shapefile')
-
-#Centroid Prep
-SingleNetworkObj = pd.DataFrame([str(ginNetwork.unary_union)], columns = ['geom'])
-gSingleNetworkObj = gpd.GeoDataFrame(SingleNetworkObj,crs = crs_in, geometry = SingleNetworkObj['geom'].map(shapely.wkt.loads))
-inAdmin = os.path.join(OD_IN,'Poverty_Communes_2009.shp')
-ginAdmin = gpd.read_file(inAdmin)
-ginAdmin = ginAdmin.to_crs(crs_in)
-ginAdmin = ginAdmin[['P_EName','D_EName','EN_name','Admin_EN','COMPOPULA','PROCODE04','DISTCODE04','CCode04New','geometry']]
-ginAdmin = ginAdmin.rename(columns = {'COMPOPULA': 'Pop'})
-ginAdmin['ID'] = ginAdmin.index
-SelectedAdmins = gpd.sjoin(gSingleNetworkObj, ginAdmin, how="inner",op='intersects')
-SelectedAdmins = SelectedAdmins.drop(['geom','geometry'], axis = 1)
-ginAdmin = ginAdmin.loc[ginAdmin['ID'].isin(SelectedAdmins['ID']) == True]
-ginAdmin['geometry'] = ginAdmin['geometry'].centroid
-ginAdmin.to_file(os.path.join(runtime, 'adm_centroids.shp'), driver = 'ESRI Shapefile')
-
 ##########Criticality Script #########
-Outputs = []   # List of final outputs, each object is a dictionary corresponding to an origin:destination pair
-#Inputs
-network = os.path.join(runtime,'Network.shp')
-def makeOrigin(n):
+def makeOrigin(n, ctrldf):
     origindict = {
         'name': ctrldf['OName'][n],
         'file': ctrldf['OPath'][n],
@@ -98,7 +185,7 @@ def makeOrigin(n):
         }
     return origindict
 
-def makeDestination(n):
+def makeDestination(n, ctrldf):
     destdict = {
         'name': ctrldf['DName'][n],
         'file': ctrldf['DPath'][n],
@@ -109,65 +196,22 @@ def makeDestination(n):
         }
     return destdict
 
-origin_1, origin_2, origin_3 = makeOrigin(0), makeOrigin(1), makeOrigin(2)
-originlist = {
-    '%s' % ctrldf['OName'][0]: origin_1,
-    '%s' % ctrldf['OName'][1]: origin_2,
-    '%s' % ctrldf['OName'][2]: origin_3
-    }
-destination_1, destination_2, destination_3 = makeDestination(0), makeDestination(1), makeDestination(2)
-destinationlist = {
-    '%s' % ctrldf['DName'][0]: destination_1,
-    '%s' % ctrldf['DName'][1]: destination_2,
-    '%s' % ctrldf['DName'][2]: destination_3
-    }
-# Prepation of network
-gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)
-# Create Networkx MultiGraph object from the GeoDataFrame
-G = net_p.gdf_to_simplified_multidigraph(gdf_node_pos, gdf, simplify=False)
-# Change the MultiGraph object to Graph object to reduce computation cost
-G_tograph = net_p.multigraph_to_graph(G)
-# Observe the properties of the Graph object
-Vprint('number of disconnected components is: %d' % nx.number_connected_components(G_tograph))
-nx.info(G_tograph)
-# Take only the largest subgraph with all connected links
-len_old = 0
-for g in nx.connected_component_subgraphs(G_tograph):
-    if len(list(g.edges())) > len_old:
-        G1 = g
-        len_old = len(list(g.edges()))
-G_sub = G1.copy()
-
-Vprint('number of disconnected components is: %d' % nx.number_connected_components(G_sub))
-nx.info(G_sub)
-
-# Save the simplified transport network into a GeoDataFrame
-gdf_sub = net_p.graph_to_df(G_sub)
-blank, gdf_node_pos2, gdf_new = net_p.prepare_newOD(origin_1['file'], gdf_sub)
-
-#Road Network Graph prep
-G2_multi = net_p.gdf_to_simplified_multidigraph(gdf_node_pos2, gdf_new, simplify=False)
-Filedump(gdf_new, 'Road_Lines'), Filedump(gdf_node_pos2,'Road_Nodes')
-G2 = net_p.multigraph_to_graph(G2_multi)
-gdf2 = net_p.graph_to_df(G2)
-nLink = len(G2.edges())
-
-def PrepSet(point_set):
-    """
+def PrepSet(point_set, gdf_sub):
+    '''
     Prepares a small df of a given origin / destination set, expressed as 'item : Nearest Node ID'
-    """
+    '''
     Prepared_point_set, gdf_node_pos2, gdf_new = net_p.prepare_newOD(point_set['file'], gdf_sub)
     Prepared_point_set = Prepared_point_set['Node']
     return Prepared_point_set
 
-def Pathfinder(origin, destination):
-    """
+def Pathfinder(origin, destination, G2):
+    '''
     find the shortest path for each od to minimize the total travel cost;
     output:
     1) baseCost ($): total travel cost between all OD pairs;
     2) basePath the shortest path between all OD pairs;
     3) baseLength: total travel distance between all OD pairs.
-    """
+    '''
     basePath = [[ [] for d in range(len(destination))] for d in range(len(origin))]
     baseCost = np.zeros((len(origin),len(destination)))
     baseLength = np.zeros((len(origin),len(destination)))
@@ -178,14 +222,14 @@ def Pathfinder(origin, destination):
             baseLength[o][d] = nx.dijkstra_path_length(G2,origin[o],destination[d], weight = 'length')
     return basePath, baseCost, baseLength
 
-def BreakEdge(origin, destination, penalty, baseCost, name):
-    """
+def BreakEdge(origin, destination, penalty, baseCost, name, G2, runtime, nLink, gdf2):
+    '''
     fundamental criticaility analysis: remove each link by changing it to a extremely large value,
     calculate the shortest path, then re-set total cost of traversing link.
     output:
     1.) diff: a 3D matrix describing the change in cost for each 2D O-Dmatrix when a given link is broken
     2.) iso: a 3D matrix describing the cost of isolated journeys for each 2D O-D matrix when a given link is broken
-    """
+    '''
     to_allNode = []
     G = copy.deepcopy(G2)
     cost_disrupt = np.zeros((nLink, len(origin),len(destination)))
@@ -202,7 +246,7 @@ def BreakEdge(origin, destination, penalty, baseCost, name):
         for d in range(len(destination)):
             cost_disrupt[road_link_id][o][d] = to_allNode[item_number].get(destination[d]) # shortest path cost for each OD; # of link * OD *OD
     diff = cost_disrupt - baseCost
-    Filedump(pd.DataFrame(cost_disrupt[1]),'cost_disrupt_%s' % name)
+    Filedump(pd.DataFrame(cost_disrupt[1]),'cost_disrupt_%s' % name, runtime)
     # change cost of the isolated OD to penalty value
     iso = np.zeros((nLink, len(origin),len(destination)))
     for index,item in np.ndenumerate(cost_disrupt):
@@ -212,11 +256,11 @@ def BreakEdge(origin, destination, penalty, baseCost, name):
     return diff, iso
 
 def GenerateDemandFunction(origin,destination,baseLength):
-    """
+    '''
     1.) Output: a demand function of form:
     Trips[o,d] = (Pop[o] * Annual_Number_of_trips * x)
         where sum(x) is 1 and  x = f(norm(Scalar[d]), (exp -(Distance[o,d] * importance))
-    """
+    '''
     demand = np.zeros((len(origin['P']),len(destination['P'])))
     O_DF = gpd.read_file(origin['file'])
     D_DF = gpd.read_file(destination['file'])
@@ -234,12 +278,12 @@ def GenerateDemandFunction(origin,destination,baseLength):
                 demand[o][d] = ((O_DF[origin['scalar_column']][o] * destination['annual']) * X['x'][d])
     return demand
 
-def summarise(diff, iso, demand, origin, destination,Q):
-    """
+def summarise(diff, iso, demand, origin, destination, Q, nLink, gdf2, ctrldf):
+    '''
     For each link disrupted, we find the number of trips that cannot be completed due to link disruption: isolate_sumTrip
     Total social cost is defined as a link disrupted under traffic: disrupt_sumCost
     Total number of trips being disrupted: disrupt_sumTrip
-    """
+    '''
     disrupt_sumCost, disrupt_sumTrip, isolate_sumTrip = np.zeros(nLink),np.zeros(nLink),np.zeros(nLink)
     for i in range((nLink)):
         disrupt_sumCost[i] = np.nansum(np.multiply(diff[i,:,:],demand))
@@ -249,9 +293,9 @@ def summarise(diff, iso, demand, origin, destination,Q):
     criticality[:,0] = criticality[:,0].astype(int)
     out = pd.DataFrame({'ID':criticality[:,0],'Social_Cost_%s' % Q:criticality[:,1],'Isolated_Trips_%s' % Q:criticality[:,2]})
     a = out['Social_Cost_%s' % Q]
-    cost_list.append('Social_Cost_%s' % Q)
+    #cost_list.append('Social_Cost_%s' % Q)
     b = out['Isolated_Trips_%s' % Q]
-    iso_list.append('Isolated_Trips_%s' % Q)
+    #iso_list.append('Isolated_Trips_%s' % Q)
     out['Social_Cost_score_%s' % Q] = ((a - a.min()) / (a.max()- a.min()))
     out['Isolated_score_%s' % Q] = ((b - b.min()) / (b.max()- b.min()))
     out['CRIT_SCORE_%s' % Q] = (
@@ -261,14 +305,14 @@ def summarise(diff, iso, demand, origin, destination,Q):
     out = out[['ID','Social_Cost_%s' % Q,'Isolated_Trips_%s' % Q,'CRIT_SCORE_%s' % Q]]
     return out
 
-def Main(origin, destination, Q):
-    Vprint('\ncomputing for origin = %s and destination = %s\n, combination %s' % (origin['name'], destination['name'],Q))
-    origin['P'], destination['P'] = PrepSet(origin), PrepSet(destination)
-    basePath, baseCost, baseLength = Pathfinder(origin['P'], destination['P'])
-    diff, iso = BreakEdge(origin['P'], destination['P'], destination['penalty'], baseCost, destination['name'])
+def calculateOD(origin, destination, Q, gdf_sub, G2, nLink, gdf2, runtime, ctrldf):
+    logging.debug('computing for origin = %s and destination = %s\n, combination %s' % (origin['name'], destination['name'],Q))
+    origin['P'], destination['P'] = PrepSet(origin, gdf_sub), PrepSet(destination, gdf_sub)
+    basePath, baseCost, baseLength = Pathfinder(origin['P'], destination['P'], G2)
+    diff, iso = BreakEdge(origin['P'], destination['P'], destination['penalty'], baseCost, destination['name'], G2, runtime, nLink, gdf2)
     demand = GenerateDemandFunction(origin, destination, baseLength)
-    summary = summarise(diff, iso, demand, origin, destination, Q)
-    Outputs.append({
+    summary = summarise(diff, iso, demand, origin, destination, Q, nLink, gdf2, ctrldf)
+    return({
         'origin': origin['name'],
         'destination': destination['name'],
         'basePath': basePath,
@@ -277,20 +321,5 @@ def Main(origin, destination, Q):
         'diff': diff,
         'iso': iso,
         'summary': summary})
-
-cost_list, iso_list = [], []
-for z in ctrldf.index:
-    if (((ctrldf['ComboO'][z]) != 0) & ((ctrldf['ComboD'][z]) != 0)):
-        Main(originlist['%s' % ctrldf['ComboO'][z]], destinationlist['%s' % ctrldf['ComboD'][z]], ctrldf['ComboNumber'][z])
-
-Output = inNetwork.drop(['geometry','TC_iri_med','total_cost'],axis =1)
-for o_d_calc in range(0,len(Outputs)):
-    Output = Output.merge(Outputs[o_d_calc]['summary'],how = 'left', on = 'ID')
-Output['Cost_total'] = Output[cost_list].sum(axis = 1)
-Output['Iso_total'] = Output[iso_list].sum(axis = 1)
-Output['CRIT_SCORE'] = (
-ctrldf['Disrupt_Weight'][0] * Output['Cost_total'] +
-ctrldf['Isolate_Weight'][0] * Output['Iso_total']
-)
-Output['CRIT_SCORE'] = ((Output['CRIT_SCORE'] - Output['CRIT_SCORE'].min()) / (Output['CRIT_SCORE'].max() - Output['CRIT_SCORE'].min()))
-FileOut(Output,'criticality_output')
+        
+main()
