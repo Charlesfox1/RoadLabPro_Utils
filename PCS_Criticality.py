@@ -73,10 +73,11 @@ def main(district="YD", adminIsPoint = False):
     inNetwork['total_cost'] = inNetwork['length'] * (ctrldf['Base_cost_km'][0] + (ctrldf['IRI_Coeff'][0] * inNetwork['TC_iri_med']))
     ginNetwork = gpd.GeoDataFrame(inNetwork,crs = crs_in, geometry = inNetwork['Line_Geometry'].map(shapely.wkt.loads))
     ginNetwork.to_file(network, driver = 'ESRI Shapefile')
-    
+    logging.info("Successfully loaded data")
     if not adminIsPoint:
         prepareAdminCentroids(ginNetwork, inAdmin, crs_in, os.path.join(runtime, 'adm_centroids.shp'))
-    
+        logging.info("Created admin centroids")
+        
     origin_1, origin_2, origin_3 = makeOrigin(0, ctrldf), makeOrigin(1, ctrldf), makeOrigin(2, ctrldf)
     originlist = {
         '%s' % ctrldf['OName'][0]: origin_1,
@@ -89,14 +90,15 @@ def main(district="YD", adminIsPoint = False):
         '%s' % ctrldf['DName'][1]: destination_2,
         '%s' % ctrldf['DName'][2]: destination_3
         }
+    logging.debug("Opened origins and destinations")
     # Prepation of network
-    gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)
+    gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)    
     # Create Networkx MultiGraph object from the GeoDataFrame
     G = net_p.gdf_to_simplified_multidigraph(gdf_node_pos, gdf, simplify=False)
     # Change the MultiGraph object to Graph object to reduce computation cost
     G_tograph = net_p.multigraph_to_graph(G)
     # Observe the properties of the Graph object
-    logging.debug('number of disconnected components is: %d' % nx.number_connected_components(G_tograph))
+    logging.debug('Loaded road network: number of disconnected components is: %d' % nx.number_connected_components(G_tograph))
     nx.info(G_tograph)
     # Take only the largest subgraph with all connected links
     len_old = 0
@@ -106,7 +108,6 @@ def main(district="YD", adminIsPoint = False):
             len_old = len(list(g.edges()))
     G_sub = G1.copy()
 
-    logging.debug('number of disconnected components is: %d' % nx.number_connected_components(G_sub))
     nx.info(G_sub)
 
     # Save the simplified transport network into a GeoDataFrame
@@ -142,6 +143,7 @@ def main(district="YD", adminIsPoint = False):
     )
     Output['CRIT_SCORE'] = ((Output['CRIT_SCORE'] - Output['CRIT_SCORE'].min()) / (Output['CRIT_SCORE'].max() - Output['CRIT_SCORE'].min()))
     FileOut(Output,'criticality_output', outpath)
+    logging.info("Calculated PCS Criticality")
 
 def prepareAdminCentroids(ginNetwork, inAdmin, crs_in, outputFile):
     #Centroid Prep
