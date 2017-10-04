@@ -18,7 +18,7 @@ verbose = 1
 checkcols = 1
 
 def main(district="YD"):
-    #district = str(raw_input('\nDistrict Code: (YD | TT) '))
+    district = str(raw_input('\nDistrict Code: (YD | TT) '))
 
     #Set all input paths
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))

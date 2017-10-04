@@ -9,7 +9,7 @@ district = str(raw_input('\nDistrict Code: (YD | TT) '))
 path = r'C:\Users\charl\Documents\GitHub\RoadLabPro_Utils\\'
 Outpath = os.path.join(path,'Outputs','%s' % district)
 roadpath = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
-dash = os.path.join(path,'PCS','dashboard.xlsx')
+dash = os.path.join(path,'PCS','dashboard.xlsm')
 weightsdf = pd.read_excel(dash, sheetname = 'DASH_MIRROR', index_col = 0)
 df = pd.read_csv(roadpath)
 
@@ -39,7 +39,7 @@ roughness = roughness[['ID','ROUGHNESS_SCORE']]
 #Calculate PCS
 for component in [poverty, risk, criticality, roughness]:
     df = df.merge(component, how = 'left', on = 'ID')
-    
+
 df['Access_weight'] = weightsdf['Weight']['PCS_ACCESS']
 df['Pov_weight'] = weightsdf['Weight']['PCS_POV']
 df['Risk_weight'] = weightsdf['Weight']['PCS_RISK']
@@ -53,4 +53,4 @@ df['e'] = df['ROUGHNESS_SCORE'] * df['Rough_weight']
 df['PCS'] = df[['a','b','c','d','e']].sum(axis = 1, skipna = True)
 #df cleanup
 df = df.drop(['Line_Geometry','a','b','c','d','e'],axis = 1)
-df.to_csv(os.path.join(Outpath,'PCS.csv'))
+df.to_csv(os.path.join(Outpath,'PCS.csv'), index = False)
