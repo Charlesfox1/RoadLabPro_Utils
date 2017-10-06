@@ -1,16 +1,23 @@
-# coding: utf-8
-import os, sys
+# -*- coding: utf-8 -*-
+###################################################################################################
+# Calculate the aggregate PCS score for various linear features
+# Charles Fox, September 2017
+# Purpose: determine the overall spatial PCS score for each linear feature in the network dataset
+###################################################################################################
+import os, sys, inspect
 import shapely
 import rtree
 import pandas as pd
 import numpy as np
 import geopandas as gdp
-district = str(raw_input('\nDistrict Code: (YD | TT) '))
-path = r'C:\Users\charl\Documents\GitHub\RoadLabPro_Utils\\'
+
+path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
+district = ctrl['Weight'].loc['DISTRICT']
 Outpath = os.path.join(path,'Outputs','%s' % district)
 roadpath = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
-dash = os.path.join(path,'PCS','dashboard.xlsm')
-weightsdf = pd.read_excel(dash, sheetname = 'DASH_MIRROR', index_col = 0)
+weightsdf = pd.read_excel(dash, sheetname = 'AGGREGATE', index_col = 0)
 df = pd.read_csv(roadpath)
 
 #Define component values

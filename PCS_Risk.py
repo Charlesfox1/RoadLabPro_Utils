@@ -5,7 +5,6 @@
 # Purpose: Intersect the risk rasters with a network dataset
 ###################################################################################################
 import os, sys, inspect, logging
-
 import fiona
 import rasterio
 import rasterstats as rs
@@ -18,14 +17,16 @@ verbose = 1
 checkcols = 1
 
 def main(district="YD"):
-    district = str(raw_input('\nDistrict Code: (YD | TT) '))
+    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+    ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
+    district = ctrl['Weight'].loc['DISTRICT']
 
     #Set all input paths
-    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
     hazardPath = os.path.join(path, "PCS\\Hazard\\HazardData") #Stores the hazard raster data
 
     #Set up logging
-    logging.basicConfig(filename = os.path.join(path, "Runtime",district,"PCS_Risk_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
+    logging.basicConfig(filename = os.path.join(path, "Runtime", district, "PCS_Risk_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
     logging.info("Starting Risk Process")
     outpath = os.path.join(path, 'Outputs','%s' % district)
     runtime = os.path.join(path, 'PCS', 'Hazard', 'Runtime')

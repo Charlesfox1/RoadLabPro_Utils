@@ -12,10 +12,13 @@ import shapely.wkt
 roadID = ''
 
 def main(district="test", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
-    district = str(raw_input('\nDistrict Code: (YD | TT) '))
+    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+    ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
+    district = ctrl['Weight'].loc['DISTRICT']
+
     admin = r'Poverty_Communes_2009.shp'
     roadID = curRoadID
-    path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
 
     #Set up logging
     logging.basicConfig(filename = os.path.join(path, 'runtime',district,"PCS_Poverty_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
@@ -24,7 +27,7 @@ def main(district="test", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
     povpath = os.path.join(path,'PCS','Poverty')
     povAdmin = os.path.join(povpath, admin)
     roadpath = os.path.join(path,'Runtime', '%s' % district, 'Network.csv')
-    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+
     crs = {'init': 'epsg:4326'}
 
     for curFile in [povpath, povAdmin, roadpath, dash]:

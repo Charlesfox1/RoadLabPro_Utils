@@ -4,13 +4,14 @@
 # Charles Fox (and a little by Ben), September 2017
 # Purpose: determine the roughness score for each linear feature in the network dataset
 ###################################################################################################
-
 import os, sys, inspect, logging
 import pandas as pd
 
 def Main(district="test"):
-    district = str(raw_input('\nDistrict Code: (YD | TT) '))
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+    ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
+    district = ctrl['Weight'].loc['DISTRICT']
 
     #Set up logging
     logging.basicConfig(filename = os.path.join(path, 'runtime', district, "PCS_Roughness_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
@@ -18,7 +19,6 @@ def Main(district="test"):
 
     #Check for existance of input files
     roadpath = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
-    dash = os.path.join(path,'PCS','dashboard.xlsm')
     for curFile in [dash, roadpath]:
         if not os.path.exists(curFile):
             logging.error("No input found: %s" % curFile)

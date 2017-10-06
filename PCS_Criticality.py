@@ -1,14 +1,10 @@
-'''
-#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
-Created on Thu Jul  6 15:54:18 2017
-@author: yan
-Re-written by by C Fox for use in Vietnam
-# criticality analysis
-#
-'''
+###################################################################################################
+# Calculate a criticality score for various linear features arranged in a network configuration
+# Yan Deng, Charles Fox and Ben Stewart, September 2017
+# Purpose: determine the criticality score for each linear feature in the network dataset
+###################################################################################################
 import os, sys, inspect, logging
-
 import networkx as nx
 import pandas as pd
 import geopandas as gpd
@@ -20,6 +16,7 @@ import time
 import datetime
 from datetime import datetime
 import warnings
+
 warnings.filterwarnings("ignore")
 
 module_path = os.path.join(os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0])), "PCS/Criticality")
@@ -33,16 +30,19 @@ from network_lib import od_prep as od_p
 verbose = 1
 dump = 1
 
-def main(district="YD", adminIsPoint = False):
+def main(adminIsPoint = False):
     path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
-    
-    logging.basicConfig(filename = os.path.join(path, "PCS_Criticality.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")    
+    dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
+    ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
+    district = ctrl['Weight'].loc['DISTRICT']
+
+    logging.basicConfig(filename = os.path.join(path, 'runtime', district, "PCS_Criticality_log.log"), level=logging.INFO, format="%(asctime)s-%(levelname)s: %(message)s")
     logging.info("Starting Criticality Process")
-    
+
     # Path Settings
     outpath = os.path.join(path, 'Outputs', '%s' % district)
     runtime = os.path.join(path, r'PCS\Criticality\runtime\%s\\' % district)
-    
+
     NETWORK_IN = os.path.join(path, r'runtime\%s\\' % district)
     OD_IN = os.path.join(path, 'PCS\Criticality\input', '%s' % district)
     dash = os.path.join(path,'PCS','dashboard.xlsm')
@@ -50,17 +50,17 @@ def main(district="YD", adminIsPoint = False):
     inAdmin = os.path.join(OD_IN,'Poverty_Communes_2009.shp')
 
     crs_in = {'init': 'epsg:4326'}   #WGS 84
-    
+
     #Create folders for analysis
     for d in [outpath, runtime]:
         if not os.path.isdir(d):
             os.mkdir(d)
-    #Error checking - Check input data 
+    #Error checking - Check input data
     for curFile in [dash, inNetworkFile, inAdmin]:
         if not os.path.exists(curFile):
             logging.error("No input found: %s" % curFile)
             raise ValueError("No input found: %s" % curFile)
-            
+
 
     inNetwork = pd.read_csv(inNetworkFile)
     ctrldf = pd.read_excel(dash, sheetname = "CRITICALITY", index_col = 'COL_ID')
@@ -75,9 +75,26 @@ def main(district="YD", adminIsPoint = False):
     ginNetwork.to_file(network, driver = 'ESRI Shapefile')
     logging.info("Successfully loaded data")
     if not adminIsPoint:
-        prepareAdminCentroids(ginNetwork, inAdmin, crs_in, os.path.join(runtime, 'adm_centroids.shp'))
+        prepareAdminCentroids(ginNetwork, inAdmin, crs_in, os.path.join(OD_IN, 'adm_centroids.shp'))
         logging.info("Created admin centroids")
-        
+    def makeOrigin(n, ctrldf):
+        origindict = {
+            'name': ctrldf['OName'][n],
+            'file': os.path.join(path,'PCS','Criticality','input',district,'%s.shp'% ctrldf['OName'][n]),
+            'scalar_column': ctrldf['OScalar'][n]
+            }
+        return origindict
+    def makeDestination(n, ctrldf):
+        destdict = {
+            'name': ctrldf['DName'][n],
+            'file': os.path.join(path,'PCS','Criticality','input',district,'%s.shp'% ctrldf['DName'][n]),
+            'penalty': ctrldf['DPenalty'][n],
+            'importance':ctrldf['DImportance'][n],
+            'annual':ctrldf['DAnnual'][n],
+            'scalar_column': ctrldf['DScalar'][n]
+            }
+        return destdict
+
     origin_1, origin_2, origin_3 = makeOrigin(0, ctrldf), makeOrigin(1, ctrldf), makeOrigin(2, ctrldf)
     originlist = {
         '%s' % ctrldf['OName'][0]: origin_1,
@@ -92,7 +109,7 @@ def main(district="YD", adminIsPoint = False):
         }
     logging.debug("Opened origins and destinations")
     # Prepation of network
-    gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)    
+    gdf_points, gdf_node_pos, gdf = net_p.prepare_centroids_network(origin_1['file'], network)
     # Create Networkx MultiGraph object from the GeoDataFrame
     G = net_p.gdf_to_simplified_multidigraph(gdf_node_pos, gdf, simplify=False)
     # Change the MultiGraph object to Graph object to reduce computation cost
@@ -121,20 +138,20 @@ def main(district="YD", adminIsPoint = False):
     G2 = net_p.multigraph_to_graph(G2_multi)
     gdf2 = net_p.graph_to_df(G2)
     nLink = len(G2.edges())
-    
+
     Outputs, cost_list, iso_list = [], [], []
-    
+
     for z in ctrldf.index:
         if (((ctrldf['ComboO'][z]) != 0) & ((ctrldf['ComboD'][z]) != 0)):
             xx = calculateOD(originlist['%s' % ctrldf['ComboO'][z]], destinationlist['%s' % ctrldf['ComboD'][z]], ctrldf['ComboNumber'][z], gdf_sub, G2, nLink, gdf2, runtime, ctrldf)
-            Outputs.append(xx)    
+            Outputs.append(xx)
             cost_list.append("Social_Cost_%s" % (z+1))
             iso_list.append("Isolated_Trips_%s" % (z+1))
 
-    Output = inNetwork.drop(['geometry',"Line_Geometry",'TC_iri_med','total_cost'],axis =1)    
+    Output = inNetwork.drop(['geometry',"Line_Geometry",'TC_iri_med','total_cost'],axis =1)
     for o_d_calc in range(0,len(Outputs)):
-        Output = Output.merge(Outputs[o_d_calc]['summary'],how = 'left', on = 'ID')    
-        
+        Output = Output.merge(Outputs[o_d_calc]['summary'],how = 'left', on = 'ID')
+
     Output['Cost_total'] = Output[cost_list].sum(axis = 1)
     Output['Iso_total']  = Output[iso_list].sum(axis = 1)
     Output['CRIT_SCORE'] = (
@@ -142,8 +159,8 @@ def main(district="YD", adminIsPoint = False):
         ctrldf['Isolate_Weight'][0] * Output['Iso_total']
     )
     Output['CRIT_SCORE'] = ((Output['CRIT_SCORE'] - Output['CRIT_SCORE'].min()) / (Output['CRIT_SCORE'].max() - Output['CRIT_SCORE'].min()))
-    FileOut(Output,'criticality_output', outpath)
     logging.info("Calculated PCS Criticality")
+    FileOut(Output,'criticality_output', outpath)
 
 def prepareAdminCentroids(ginNetwork, inAdmin, crs_in, outputFile):
     #Centroid Prep
@@ -160,7 +177,7 @@ def prepareAdminCentroids(ginNetwork, inAdmin, crs_in, outputFile):
     ginAdmin = ginAdmin.loc[ginAdmin['ID'].isin(SelectedAdmins['ID']) == True]
     ginAdmin['geometry'] = ginAdmin['geometry'].centroid
     ginAdmin.to_file(outputFile, driver = 'ESRI Shapefile')
-    
+
 
 #Utility Functions
 def Filedump(df, name, runtime):
@@ -179,24 +196,6 @@ def Vprint(s):
         print '\n%s -- %s' % (st, s)
 
 ##########Criticality Script #########
-def makeOrigin(n, ctrldf):
-    origindict = {
-        'name': ctrldf['OName'][n],
-        'file': ctrldf['OPath'][n],
-        'scalar_column': ctrldf['OScalar'][n]
-        }
-    return origindict
-
-def makeDestination(n, ctrldf):
-    destdict = {
-        'name': ctrldf['DName'][n],
-        'file': ctrldf['DPath'][n],
-        'penalty': ctrldf['DPenalty'][n],
-        'importance':ctrldf['DImportance'][n],
-        'annual':ctrldf['DAnnual'][n],
-        'scalar_column': ctrldf['DScalar'][n]
-        }
-    return destdict
 
 def PrepSet(point_set, gdf_sub):
     '''
@@ -323,5 +322,5 @@ def calculateOD(origin, destination, Q, gdf_sub, G2, nLink, gdf2, runtime, ctrld
         'diff': diff,
         'iso': iso,
         'summary': summary})
-        
+
 main()
