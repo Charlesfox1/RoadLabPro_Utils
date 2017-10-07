@@ -42,7 +42,9 @@ def main(adminIsPoint = False):
     # Path Settings
     outpath = os.path.join(path, 'Outputs', '%s' % district)
     runtime = os.path.join(path, r'PCS\Criticality\runtime\%s\\' % district)
-
+    for d in [outpath, runtime]:
+        if not os.path.isdir(d):
+            os.mkdir(d)
     NETWORK_IN = os.path.join(path, r'runtime\%s\\' % district)
     OD_IN = os.path.join(path, 'PCS\Criticality\input', '%s' % district)
     dash = os.path.join(path,'PCS','dashboard.xlsm')

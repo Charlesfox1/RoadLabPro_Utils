@@ -16,6 +16,8 @@ dash = os.path.join(path, 'PCS',r'dashboard.xlsm')
 ctrl = pd.read_excel(dash, sheetname = "AGGREGATE", index_col = 0)
 district = ctrl['Weight'].loc['DISTRICT']
 Outpath = os.path.join(path,'Outputs','%s' % district)
+if not os.path.isdir(Outpath):
+    os.mkdir(Outpath)
 roadpath = os.path.join(path, 'runtime', '%s' % district,'Network.csv')
 weightsdf = pd.read_excel(dash, sheetname = 'AGGREGATE', index_col = 0)
 df = pd.read_csv(roadpath)
