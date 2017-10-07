@@ -59,12 +59,15 @@ def main(district="test", admin="Poverty_Communes_2009.shp", curRoadID="ID"):
 
     for x in range(0,len(w8s)):
         logging.debug("Doing calcs for: %s" % w8s[x]['B'])
-        plc = ((gdf_adm[w8s[x]['B']]-gdf_adm[w8s[x]['B']].min())/(gdf_adm[w8s[x]['B']].max()-gdf_adm[w8s[x]['B']].min()))
-        if w8s[x]['D'] == False:
-            gdf_adm['Povcomp_%d'% (x+1)] = (1 - plc)*float(w8s[x]['C'])
-        else:
-            gdf_adm['Povcomp_%d'% (x+1)] = plc*float(w8s[x]['C'])
-
+        try:
+            plc = ((gdf_adm[w8s[x]['B']]-gdf_adm[w8s[x]['B']].min())/(gdf_adm[w8s[x]['B']].max()-gdf_adm[w8s[x]['B']].min()))
+            if w8s[x]['D'] == False:
+                gdf_adm['Povcomp_%d'% (x+1)] = (1 - plc)*float(w8s[x]['C'])
+            else:
+                gdf_adm['Povcomp_%d'% (x+1)] = plc*float(w8s[x]['C'])
+        except:
+            gdf_adm['Povcomp_%d'% (x+1)] = 0
+            logging.info('factor %s either weighted at 0 percent or not present')
     gdf_adm['POV_SCORE'] = gdf_adm[[
         'Povcomp_1','Povcomp_2','Povcomp_3','Povcomp_4','Povcomp_5','Povcomp_6','Povcomp_7','Povcomp_8','Povcomp_9','Povcomp_10']].sum(axis = 1, skipna = True)
 
